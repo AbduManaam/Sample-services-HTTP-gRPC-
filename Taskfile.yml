@@ -1,0 +1,247 @@
+version: "3"
+
+vars:
+  BIN_DIR: bin
+  USER_MAIN: ./cmd/http-user
+  ORDER_MAIN: ./cmd/http-order
+  GRPC_MAIN: ./cmd/grpc-hello
+
+tasks:
+  default:
+    desc: List all available tasks
+    cmds:
+      - task --list
+    silent: true
+
+  # ── Build Tasks ─────────────────────────────────────────────────────────────
+  build-all:
+    desc: Build all service binaries into bin/
+    deps:
+      - build-user
+      - build-order
+      - build-grpc
+
+  build-user:
+    desc: Build the user service binary
+    cmds:
+      - mkdir -p {{.BIN_DIR}}
+      - go build -o {{.BIN_DIR}}/user-service{{exeExt}} {{.USER_MAIN}}
+
+  build-order:
+    desc: Build the order service binary
+    cmds:
+      - mkdir -p {{.BIN_DIR}}
+      - go build -o {{.BIN_DIR}}/order-service{{exeExt}} {{.ORDER_MAIN}}
+
+  build-grpc:
+    desc: Build the gRPC service binary
+    cmds:
+      - mkdir -p {{.BIN_DIR}}
+      - go build -o {{.BIN_DIR}}/grpc-service{{exeExt}} {{.GRPC_MAIN}}
+
+  # ── Run Tasks (Local Environment) ───────────────────────────────────────────
+  run-user:
+    desc: Run user service locally on port 9001
+    cmds:
+      - go run {{.USER_MAIN}}
+
+  run-order:
+    desc: Run order service locally on port 9002
+    cmds:
+      - go run {{.ORDER_MAIN}}
+
+  run-grpc:
+    desc: Run gRPC service locally on port 50052
+    cmds:
+      - go run {{.GRPC_MAIN}}
+
+  run-all:
+    desc: Run all services locally (requires 3 terminals or use 'run-docker' instead)
+    cmds:
+      - cmd: |
+          echo "Starting all services... Open 3 new terminals and run:"
+          echo "  Terminal 1: task run-user"
+          echo "  Terminal 2: task run-order"
+          echo "  Terminal 3: task run-grpc"
+
+  # ── Quality & Testing Tasks ────────────────────────────────────────────────
+  test:
+    desc: Run all Go unit tests
+    cmds:
+      - go test ./...
+
+  test-user:
+    desc: Test user service endpoints
+    cmds:
+      - cmd: |
+          Write-Host "Testing User Service..." -ForegroundColor Green
+          Write-Host "Health:" -ForegroundColor Yellow
+          curl.exe -s http://localhost:9001/health | ConvertFrom-Json | ConvertTo-Json
+          Write-Host "`nUsers:" -ForegroundColor Yellow
+          curl.exe -s http://localhost:9001/users | ConvertFrom-Json | ConvertTo-Json
+        platforms: [windows]
+      - cmd: |
+          echo "Testing User Service..."
+          echo "Health:"
+          curl -s http://localhost:9001/health | jq .
+          echo -e "\nUsers:"
+          curl -s http://localhost:9001/users | jq .
+        platforms: [linux, darwin]
+
+  test-order:
+    desc: Test order service endpoints
+    cmds:
+      - cmd: |
+          Write-Host "Testing Order Service..." -ForegroundColor Green
+          Write-Host "Health:" -ForegroundColor Yellow
+          curl.exe -s http://localhost:9002/health | ConvertFrom-Json | ConvertTo-Json
+          Write-Host "`nOrders:" -ForegroundColor Yellow
+          curl.exe -s http://localhost:9002/orders | ConvertFrom-Json | ConvertTo-Json
+        platforms: [windows]
+      - cmd: |
+          echo "Testing Order Service..."
+          echo "Health:"
+          curl -s http://localhost:9002/health | jq .
+          echo -e "\nOrders:"
+          curl -s http://localhost:9002/orders | jq .
+        platforms: [linux, darwin]
+
+  test-all:
+    desc: Test all services
+    deps:
+      - test-user
+      - test-order
+
+  fmt:
+    desc: Format Go source files
+    cmds:
+      - gofmt -w .
+      - go fmt ./...
+
+  vet:
+    desc: Run go vet
+    cmds:
+      - go vet ./...
+
+  tidy:
+    desc: Run go mod tidy
+    cmds:
+      - go mod tidy
+
+  proto-gen:
+    desc: Generate Go code from proto files
+    cmds:
+      - cmd: |
+          $env:PATH = (go env GOPATH) + '\bin;' + $env:PATH
+          protoc --go_out=. --go-grpc_out=. api/proto/services.proto
+          Write-Host "Proto files generated successfully" -ForegroundColor Green
+        platforms: [windows]
+      - cmd: |
+          $(go env GOPATH)/bin/protoc --go_out=. --go-grpc_out=. api/proto/services.proto
+          echo "Proto files generated successfully"
+        platforms: [linux, darwin]
+
+  clean:
+    desc: Remove build artifacts folder
+    cmds:
+      - cmd: if (Test-Path bin) { Remove-Item bin -Recurse -Force }
+        platforms: [windows]
+      - cmd: rm -rf bin
+        platforms: [linux, darwin]
+
+  # ── Docker Stack Tasks ──────────────────────────────────────────────────────
+  docker-build:
+    desc: Build all Docker images
+    cmds:
+      - docker-compose build --no-cache
+
+  docker-up:
+    desc: Start full Docker stack in background
+    cmds:
+      - docker-compose up -d
+
+  docker-down:
+    desc: Stop and tear down Docker stack
+    cmds:
+      - docker-compose down
+
+  docker-restart:
+    desc: Restart all services
+    cmds:
+      - docker-compose restart
+
+  docker-logs:
+    desc: Follow logs of all containers
+    cmds:
+      - docker-compose logs -f
+
+  docker-logs-user:
+    desc: Follow logs of user service
+    cmds:
+      - docker-compose logs -f user-service
+
+  docker-logs-order:
+    desc: Follow logs of order service
+    cmds:
+      - docker-compose logs -f order-service
+
+  docker-logs-grpc:
+    desc: Follow logs of gRPC service
+    cmds:
+      - docker-compose logs -f grpc-service
+
+  docker-ps:
+    desc: Show running status of containers
+    cmds:
+      - docker-compose ps
+
+  docker-full:
+    desc: Full Docker setup (build + start + show status)
+    deps:
+      - docker-build
+      - docker-up
+    cmds:
+      - docker-compose ps
+
+  # ── Master Tasks (Comprehensive Workflows) ──────────────────────────────────
+  setup-docker:
+    desc: 🚀 Complete Docker setup and health check
+    cmds:
+      - task: docker-build
+      - task: docker-up
+      - cmd: echo "Waiting 3 seconds for services to start..."
+      - cmd: sleep 3
+      - task: docker-ps
+      - task: test-all
+
+  dev:
+    desc: 📚 Start development environment locally
+    cmds:
+      - task: build-all
+      - cmd: |
+          echo "✅ All services built! Open 3 terminals and run:"
+          echo "   Terminal 1: task run-user"
+          echo "   Terminal 2: task run-order"
+          echo "   Terminal 3: task run-grpc"
+
+  ci:
+    desc: 🔄 CI pipeline (test + build + docker-build)
+    deps:
+      - test
+      - build-all
+      - docker-build
+
+  deploy:
+    desc: 🚀 Deploy to Docker
+    deps:
+      - docker-build
+    cmds:
+      - docker-compose up -d
+
+  status:
+    desc: 📊 Show current system status
+    cmds:
+      - task: docker-ps
+      - echo "---"
+      - cmd: echo "Available tasks:"
+      - task: default

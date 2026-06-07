@@ -1,0 +1,114 @@
+# docker-compose.override.yml.example
+# 
+# Use this file to override docker-compose.yml settings for local development
+# Copy this file to docker-compose.override.yml and edit as needed
+#
+# Docker Compose will automatically merge this file with docker-compose.yml
+# 
+# Example uses:
+# - Custom ports for local testing
+# - Volume mounts for hot-reload development
+# - Custom environment variables
+# - Resource limits for testing
+
+version: '3.9'
+
+services:
+  # User Service overrides
+  user-service:
+    # Override ports for local development (if 9001 is already in use)
+    ports:
+      - "9001:9001"
+    
+    # Mount local source for hot-reload (requires service restart on changes)
+    volumes:
+      - ./cmd/http-user:/app/cmd/http-user
+      - ./api:/app/api
+    
+    # Override environment
+    environment:
+      - LOG_LEVEL=debug
+      - ENABLE_PROFILING=true
+    
+    # Override resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 256M
+        reservations:
+          cpus: '0.5'
+          memory: 128M
+
+  # Order Service overrides
+  order-service:
+    ports:
+      - "9002:9002"
+    
+    volumes:
+      - ./cmd/http-order:/app/cmd/http-order
+      - ./api:/app/api
+    
+    environment:
+      - LOG_LEVEL=debug
+      - ENABLE_PROFILING=true
+    
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 256M
+        reservations:
+          cpus: '0.5'
+          memory: 128M
+
+  # gRPC Service overrides
+  grpc-service:
+    ports:
+      - "50052:50052"
+    
+    volumes:
+      - ./cmd/grpc-hello:/app/cmd/grpc-hello
+      - ./api:/app/api
+    
+    environment:
+      - LOG_LEVEL=debug
+    
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 256M
+        reservations:
+          cpus: '0.5'
+          memory: 128M
+
+# Alternative: Custom port mapping example
+# services:
+#   user-service:
+#     ports:
+#       - "19001:9001"  # Map to different host port
+#   
+#   order-service:
+#     ports:
+#       - "19002:9002"
+#   
+#   grpc-service:
+#     ports:
+#       - "50052:50052"
+
+# Alternative: Enable debugging with Delve
+# services:
+#   user-service:
+#     environment:
+#       - DEBUG=true
+#     ports:
+#       - "2345:2345"  # Delve debug port
+#     entrypoint: dlv exec /app/user-service --headless --listen=:2345 --api-version=2
+
+# Notes:
+# - Uncomment and modify sections as needed
+# - Docker Compose automatically loads docker-compose.override.yml if present
+# - Override settings take precedence over docker-compose.yml
+# - Volume mounts require rebuilding containers after code changes
+# - For hot-reload, consider using a process manager like nodemon (go-equiv: entr, air)

@@ -1,0 +1,46 @@
+syntax = "proto3";
+
+package services;
+
+option go_package = "github.com/elitegate/elitegate-examples/api/proto";
+
+// Greeter Service
+service Greeter {
+  rpc SayHello (HelloRequest) returns (HelloResponse);
+  rpc SayGoodbye (GoodbyeRequest) returns (GoodbyeResponse);
+}
+
+message HelloRequest {
+  string name = 1;
+}
+
+message HelloResponse {
+  string message = 1;
+  string timestamp = 2;
+}
+
+message GoodbyeRequest {
+  string name = 1;
+}
+
+message GoodbyeResponse {
+  string message = 1;
+  string timestamp = 2;
+}
+
+// Notification Service
+service Notification {
+  rpc SendAlert (AlertRequest) returns (AlertResponse);
+}
+
+message AlertRequest {
+  string user_id = 1;
+  string alert_type = 2;
+  string message = 3;
+}
+
+message AlertResponse {
+  bool success = 1;
+  string alert_id = 2;
+  string status = 3;
+}
