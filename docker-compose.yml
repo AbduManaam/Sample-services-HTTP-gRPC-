@@ -1,42 +1,122 @@
 version: '3.9'
 
 services:
-  user-service:
+  user-service-1:
     build:
       context: .
       dockerfile: deploy/user.Dockerfile
-    container_name: user-service
+    environment:
+      - INSTANCE_ID=user-1
+      - PORT=9001
     ports:
-      - "9001:9001"
+      - "9011:9001"  # host port 9011 → container port 9001
     networks:
       - elitegate_net
-    environment:
-      - LOG_LEVEL=info
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9001/health"]
       interval: 10s
       timeout: 5s
       retries: 3
       start_period: 5s
+    restart: unless-stopped
 
-  order-service:
+  user-service-2:
+    build:
+      context: .
+      dockerfile: deploy/user.Dockerfile
+    environment:
+      - INSTANCE_ID=user-2
+      - PORT=9001
+    ports:
+      - "9012:9001"
+    networks:
+      - elitegate_net
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    restart: unless-stopped
+
+  user-service-3:
+    build:
+      context: .
+      dockerfile: deploy/user.Dockerfile
+    environment:
+      - INSTANCE_ID=user-3
+      - PORT=9001
+    ports:
+      - "9013:9001"
+    networks:
+      - elitegate_net
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    restart: unless-stopped
+
+  # ── Order Service — 3 instances ──────────────────────────────────────
+  order-service-1:
     build:
       context: .
       dockerfile: deploy/order.Dockerfile
-    container_name: order-service
+    environment:
+      - INSTANCE_ID=order-1
+      - PORT=9002
     ports:
-      - "9002:9002"
+      - "9021:9002"
     networks:
       - elitegate_net
-    environment:
-      - LOG_LEVEL=info
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9002/health"]
       interval: 10s
       timeout: 5s
       retries: 3
       start_period: 5s
+    restart: unless-stopped
 
+  order-service-2:
+    build:
+      context: .
+      dockerfile: deploy/order.Dockerfile
+    environment:
+      - INSTANCE_ID=order-2
+      - PORT=9002
+    ports:
+      - "9022:9002"
+    networks:
+      - elitegate_net
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9002/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    restart: unless-stopped
+
+  order-service-3:
+    build:
+      context: .
+      dockerfile: deploy/order.Dockerfile
+    environment:
+      - INSTANCE_ID=order-3
+      - PORT=9002
+    ports:
+      - "9023:9002"
+    networks:
+      - elitegate_net
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9002/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    restart: unless-stopped
+
+  # ── gRPC Service — single instance (not LB tested here) ───────────────
   grpc-service:
     build:
       context: .
@@ -48,8 +128,9 @@ services:
       - elitegate_net
     environment:
       - LOG_LEVEL=info
+    restart: unless-stopped
 
 networks:
   elitegate_net:
-    name: elitegate_net 
-    driver: bridge
+    external: true  # EliteGate's compose already created this network
+    name: elitegate_net
