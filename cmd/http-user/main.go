@@ -4,11 +4,29 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 )
+
+// instanceID identifies this specific container instance.
+// Set via INSTANCE_ID environment variable in docker-compose.
+// Falls back to hostname (Docker sets this to container short ID)
+// so it's always unique even without explicit config.
+var instanceID string
+
+func init() {
+	instanceID = os.Getenv("INSTANCE_ID")
+	if instanceID == "" {
+		var err error
+		instanceID, err = os.Hostname()
+		if err != nil {
+			instanceID = "unknown"
+		}
+	}
+}
 
 // User represents a user entity
 type User struct {
@@ -30,7 +48,6 @@ var userStore = &UserStore{
 	idGen: 1,
 }
 
-// Initialize with mock data
 func init() {
 	userStore.users[1] = User{ID: 1, Name: "Alice Johnson", Email: "alice@example.com", Age: 28}
 	userStore.users[2] = User{ID: 2, Name: "Bob Smith", Email: "bob@example.com", Age: 34}
@@ -38,16 +55,18 @@ func init() {
 	userStore.idGen = 4
 }
 
-// Health check endpoint
+// healthHandler — instance_id added so LB verification is possible.
+// When you hit this endpoint 6 times and see instance_id rotating
+// between user-1, user-2, user-3, LB is confirmed working.
 func healthHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{
-		"status":  "ok",
-		"service": "user-service",
+		"status":      "ok",
+		"service":     "user-service",
+		"instance_id": instanceID,
 	})
 }
 
-// Get all users
 func listUsersHandler(w http.ResponseWriter, r *http.Request) {
 	userStore.mu.RLock()
 	users := make([]User, 0, len(userStore.users))
@@ -58,12 +77,13 @@ func listUsersHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"users": users,
-		"count": len(users),
+		"users":       users,
+		"count":       len(users),
+		"instance_id": instanceID, // visible in every response for LB verification
+		"served_by":   "user-service@" + instanceID,
 	})
 }
 
-// Get single user by ID
 func getUserHandler(w http.ResponseWriter, r *http.Request) {
 	pathParts := strings.Split(strings.TrimPrefix(r.URL.Path, "/users/"), "/")
 	idStr := pathParts[0]
@@ -88,10 +108,13 @@ func getUserHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(user)
+	// Wrap in envelope with instance_id so LB is visible
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"user":        user,
+		"instance_id": instanceID,
+	})
 }
 
-// Create new user
 func createUserHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
@@ -127,10 +150,12 @@ func createUserHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusCreated)
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(user)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"user":        user,
+		"instance_id": instanceID,
+	})
 }
 
-// Debug endpoint - echoes request details
 func debugHandler(w http.ResponseWriter, r *http.Request) {
 	headers := make(map[string][]string)
 	for key, values := range r.Header {
@@ -144,16 +169,17 @@ func debugHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
+		"instance_id":  instanceID, // most important field for LB debugging
 		"method":       r.Method,
 		"path":         r.URL.Path,
 		"headers":      headers,
 		"query_params": queryParams,
 		"remote_addr":  r.RemoteAddr,
 		"timestamp":    time.Now().Format(time.RFC3339),
+		"forwarded_by": r.Header.Get("X-Gateway"),
 	})
 }
 
-// Router handler
 func router(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
 
@@ -176,11 +202,15 @@ func router(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "9001"
+	}
+
 	http.HandleFunc("/", router)
 
-	port := ":9001"
-	log.Printf("User Service starting on %s\n", port)
-	if err := http.ListenAndServe(port, nil); err != nil {
+	log.Printf("User Service starting | instance_id=%s | port=%s", instanceID, port)
+	if err := http.ListenAndServe(":"+port, nil); err != nil {
 		log.Fatalf("Server failed: %v", err)
 	}
 }

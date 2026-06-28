@@ -4,13 +4,26 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 )
 
-// Order represents an order entity
+var instanceID string
+
+func init() {
+	instanceID = os.Getenv("INSTANCE_ID")
+	if instanceID == "" {
+		var err error
+		instanceID, err = os.Hostname()
+		if err != nil {
+			instanceID = "unknown"
+		}
+	}
+}
+
 type Order struct {
 	ID       int     `json:"id"`
 	UserID   int     `json:"user_id"`
@@ -20,7 +33,6 @@ type Order struct {
 	Status   string  `json:"status"`
 }
 
-// OrderStore holds orders in memory with thread-safe access
 type OrderStore struct {
 	mu     sync.RWMutex
 	orders map[int]Order
@@ -32,7 +44,6 @@ var orderStore = &OrderStore{
 	idGen:  1,
 }
 
-// Initialize with mock data
 func init() {
 	orderStore.orders[1] = Order{ID: 1, UserID: 1, Product: "Laptop", Quantity: 1, Price: 999.99, Status: "shipped"}
 	orderStore.orders[2] = Order{ID: 2, UserID: 2, Product: "Mouse", Quantity: 2, Price: 29.99, Status: "delivered"}
@@ -40,16 +51,15 @@ func init() {
 	orderStore.idGen = 4
 }
 
-// Health check endpoint
 func healthHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{
-		"status":  "ok",
-		"service": "order-service",
+		"status":      "ok",
+		"service":     "order-service",
+		"instance_id": instanceID,
 	})
 }
 
-// Get all orders
 func listOrdersHandler(w http.ResponseWriter, r *http.Request) {
 	orderStore.mu.RLock()
 	orders := make([]Order, 0, len(orderStore.orders))
@@ -60,12 +70,13 @@ func listOrdersHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"orders": orders,
-		"count":  len(orders),
+		"orders":      orders,
+		"count":       len(orders),
+		"instance_id": instanceID,
+		"served_by":   "order-service@" + instanceID,
 	})
 }
 
-// Get single order by ID
 func getOrderHandler(w http.ResponseWriter, r *http.Request) {
 	pathParts := strings.Split(strings.TrimPrefix(r.URL.Path, "/orders/"), "/")
 	idStr := pathParts[0]
@@ -90,10 +101,12 @@ func getOrderHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(order)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"order":       order,
+		"instance_id": instanceID,
+	})
 }
 
-// Create new order
 func createOrderHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
@@ -130,10 +143,12 @@ func createOrderHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusCreated)
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(order)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"order":       order,
+		"instance_id": instanceID,
+	})
 }
 
-// Debug endpoint - echoes request details
 func debugHandler(w http.ResponseWriter, r *http.Request) {
 	headers := make(map[string][]string)
 	for key, values := range r.Header {
@@ -147,16 +162,17 @@ func debugHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{
+		"instance_id":  instanceID,
 		"method":       r.Method,
 		"path":         r.URL.Path,
 		"headers":      headers,
 		"query_params": queryParams,
 		"remote_addr":  r.RemoteAddr,
 		"timestamp":    time.Now().Format(time.RFC3339),
+		"forwarded_by": r.Header.Get("X-Gateway"),
 	})
 }
 
-// Router handler
 func router(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
 
@@ -179,11 +195,15 @@ func router(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "9002"
+	}
+
 	http.HandleFunc("/", router)
 
-	port := ":9002"
-	log.Printf("Order Service starting on %s\n", port)
-	if err := http.ListenAndServe(port, nil); err != nil {
+	log.Printf("Order Service starting | instance_id=%s | port=%s", instanceID, port)
+	if err := http.ListenAndServe(":"+port, nil); err != nil {
 		log.Fatalf("Server failed: %v", err)
 	}
 }
